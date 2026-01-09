@@ -1,0 +1,5 @@
+{
+  "name": "NutriPlan AI - Dieta Personalizada",
+  "description": "Una aplicación avanzada para la generación de dietas personalizadas de adelgazamiento utilizando IA, con seguimiento de progreso, cálculo de IMC y riesgo cardiovascular.",
+  "requestFramePermissions": []
+}
