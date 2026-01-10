@@ -17,17 +17,6 @@ const MEAL_PROPERTIES = {
 
 const MEAL_REQUIRED = ["name", "description", "instructions", "prepTime", "difficulty", "calories", "protein", "carbs", "fats"];
 
-const getApiKey = (): string => {
-  // Intentamos obtener la clave de la forma más robusta posible según las directrices
-  const key = typeof process !== 'undefined' && process.env ? process.env.API_KEY : undefined;
-  
-  if (!key) {
-    throw new Error("API_KEY_NOT_FOUND: El navegador no puede acceder a process.env.API_KEY. Si usas Render, verifica que tu build tool esté inyectando las variables de entorno.");
-  }
-  
-  return key;
-};
-
 const cleanJSONResponse = (text: string): string => {
   let cleaned = text.trim();
   if (cleaned.startsWith("```json")) {
@@ -39,8 +28,13 @@ const cleanJSONResponse = (text: string): string => {
 };
 
 export const generateDietPlan = async (profile: UserProfile): Promise<WeeklyDiet> => {
-  const apiKey = getApiKey();
-  const ai = new GoogleGenAI({ apiKey });
+  // Validación de seguridad para confirmar la inyección del build
+  if (!process.env.API_KEY) {
+    throw new Error("API_KEY_MISSING: La variable no se inyectó correctamente en el build. Revisa vite.config.ts.");
+  }
+
+  // Inicialización directa según directrices
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   const geneticsInfo = profile.geneticMarkers.map(m => {
     const marker = GENETIC_MARKERS.find(gm => gm.id === m);
@@ -100,8 +94,8 @@ export const generateDietPlan = async (profile: UserProfile): Promise<WeeklyDiet
 };
 
 export const getMealAlternatives = async (originalMeal: Meal, profile: UserProfile): Promise<Meal[]> => {
-  const apiKey = getApiKey();
-  const ai = new GoogleGenAI({ apiKey });
+  if (!process.env.API_KEY) return [];
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   const prompt = `Genera 2 alternativas saludables para: "${originalMeal.name}" (${originalMeal.calories} kcal).
     Estilo de dieta: ${profile.dietType}. Idioma: ${profile.language === 'es' ? 'Español' : 'Inglés'}.`;
