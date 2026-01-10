@@ -62,9 +62,10 @@ const App: React.FC = () => {
       localStorage.setItem('nutriplan_history', JSON.stringify(newHistory));
       localStorage.setItem('nutriplan_diet', JSON.stringify(generatedDiet));
       setActiveTab('plan');
-    } catch (err) {
-      console.error("Generation Error Details:", err);
-      setError(lang === 'es' ? "Error de conexión con la IA. Verifique su API KEY en el panel de Render." : "AI Connection error. Check your API KEY in Render dashboard.");
+    } catch (err: any) {
+      console.error("Critical Generation Error:", err);
+      // Mostramos el error real para diagnóstico
+      setError(`${lang === 'es' ? 'Error detectado' : 'Error detected'}: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -159,7 +160,6 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 pb-24 lg:pb-8 relative">
-      {/* Loading Overlay - Previene desmontaje de componentes para no perder datos del formulario */}
       {loading && (
         <div className="fixed inset-0 z-[100] bg-slate-50/80 backdrop-blur-sm flex flex-col items-center justify-center animate-in fade-in duration-300">
           <div className="w-16 h-16 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mb-6"></div>
@@ -199,12 +199,15 @@ const App: React.FC = () => {
 
       <main className="max-w-4xl mx-auto px-4 py-8">
         {error && (
-          <div className="mb-6 p-4 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-sm font-medium flex justify-between items-center shadow-sm">
-            <div className="flex items-center gap-2">
-              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
-              {error}
+          <div className="mb-6 p-4 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-sm font-medium flex justify-between items-center shadow-sm animate-in slide-in-from-top-4">
+            <div className="flex items-center gap-3">
+              <svg className="w-6 h-6 shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
+              <div>
+                <p className="font-bold">{lang === 'es' ? 'Error de Ejecución' : 'Execution Error'}</p>
+                <p className="text-xs opacity-80">{error}</p>
+              </div>
             </div>
-            <button onClick={() => setError(null)} className="text-rose-900 font-bold px-2 hover:bg-rose-100 rounded">×</button>
+            <button onClick={() => setError(null)} className="text-rose-900 font-bold px-3 py-1 hover:bg-rose-100 rounded-lg">×</button>
           </div>
         )}
 
@@ -299,7 +302,6 @@ const App: React.FC = () => {
               <div className="space-y-6">
                 <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-100 space-y-6">
                   <h3 className="text-xl font-bold text-slate-900 border-b pb-2">{t.refs_title}</h3>
-                  
                   <section className="space-y-2">
                     <h4 className="font-bold text-emerald-700 flex items-center gap-2">
                       <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M9 4.804A7.993 7.993 0 002 12a7.993 7.993 0 007 7.196V4.804zM11 4.804v14.392A7.993 7.993 0 0018 12a7.993 7.993 0 00-7-7.196z" /></svg>
@@ -307,7 +309,6 @@ const App: React.FC = () => {
                     </h4>
                     <p className="text-sm text-slate-600 leading-relaxed">{SCIENTIFIC_REFERENCES.diets}</p>
                   </section>
-
                   <section className="space-y-2">
                     <h4 className="font-bold text-emerald-700 flex items-center gap-2">
                       <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M10 2a8 8 0 100 16 8 8 0 000-16zM5 9a1 1 0 011-1h8a1 1 0 110 2H6a1 1 0 01-1-1z" /></svg>
@@ -315,7 +316,6 @@ const App: React.FC = () => {
                     </h4>
                     <p className="text-sm text-slate-600 leading-relaxed">{SCIENTIFIC_REFERENCES.nutritionalTables}</p>
                   </section>
-
                   <section className="space-y-2">
                     <h4 className="font-bold text-emerald-700 flex items-center gap-2">
                       <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" /></svg>
@@ -323,7 +323,6 @@ const App: React.FC = () => {
                     </h4>
                     <p className="text-sm text-slate-600 leading-relaxed">{SCIENTIFIC_REFERENCES.cvRisk}</p>
                   </section>
-
                   <section className="space-y-3">
                     <h4 className="font-bold text-rose-700 flex items-center gap-2">
                       <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" /></svg>

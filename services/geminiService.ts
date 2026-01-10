@@ -17,7 +17,6 @@ const MEAL_PROPERTIES = {
 
 const MEAL_REQUIRED = ["name", "description", "instructions", "prepTime", "difficulty", "calories", "protein", "carbs", "fats"];
 
-// Función auxiliar para limpiar la respuesta y asegurar que sea JSON válido
 const cleanJSONResponse = (text: string): string => {
   let cleaned = text.trim();
   if (cleaned.startsWith("```json")) {
@@ -29,14 +28,13 @@ const cleanJSONResponse = (text: string): string => {
 };
 
 export const generateDietPlan = async (profile: UserProfile): Promise<WeeklyDiet> => {
-  const apiKey = process.env.API_KEY;
+  // Inicialización directa según directrices
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
-  if (!apiKey) {
-    throw new Error("ERROR: La variable de entorno API_KEY no está configurada en Render.");
+  if (!process.env.API_KEY) {
+    throw new Error("La clave API_KEY no está definida en el entorno (process.env.API_KEY es undefined).");
   }
 
-  const ai = new GoogleGenAI({ apiKey });
-  
   const geneticsInfo = profile.geneticMarkers.map(m => {
     const marker = GENETIC_MARKERS.find(gm => gm.id === m);
     return `${marker?.label}: ${marker?.desc}`;
@@ -123,17 +121,15 @@ export const generateDietPlan = async (profile: UserProfile): Promise<WeeklyDiet
 
     const cleanedText = cleanJSONResponse(response.text || "");
     return JSON.parse(cleanedText) as WeeklyDiet;
-  } catch (error) {
-    console.error("Gemini API Error:", error);
-    throw error;
+  } catch (error: any) {
+    console.error("Gemini API Error Detail:", error);
+    throw new Error(error.message || "Error desconocido en la API de Gemini");
   }
 };
 
 export const getMealAlternatives = async (originalMeal: Meal, profile: UserProfile): Promise<Meal[]> => {
-  const apiKey = process.env.API_KEY;
-  if (!apiKey) return [];
-  
-  const ai = new GoogleGenAI({ apiKey });
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  if (!process.env.API_KEY) return [];
   
   const prompt = `Como Chef-Nutricionista, genera 2 platos alternativos para esta comida: "${originalMeal.name}".
     RESTRICCIONES CRÍTICAS:
@@ -162,7 +158,6 @@ export const getMealAlternatives = async (originalMeal: Meal, profile: UserProfi
     const cleanedText = cleanJSONResponse(response.text || "");
     return JSON.parse(cleanedText) as Meal[];
   } catch (error) {
-    console.error("Alternatives API Error:", error);
     return [];
   }
 };
