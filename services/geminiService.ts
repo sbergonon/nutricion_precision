@@ -17,6 +17,17 @@ const MEAL_PROPERTIES = {
 
 const MEAL_REQUIRED = ["name", "description", "instructions", "prepTime", "difficulty", "calories", "protein", "carbs", "fats"];
 
+const getApiKey = (): string => {
+  // Intentamos obtener la clave de la forma más robusta posible según las directrices
+  const key = typeof process !== 'undefined' && process.env ? process.env.API_KEY : undefined;
+  
+  if (!key) {
+    throw new Error("API_KEY_NOT_FOUND: El navegador no puede acceder a process.env.API_KEY. Si usas Render, verifica que tu build tool esté inyectando las variables de entorno.");
+  }
+  
+  return key;
+};
+
 const cleanJSONResponse = (text: string): string => {
   let cleaned = text.trim();
   if (cleaned.startsWith("```json")) {
@@ -28,8 +39,8 @@ const cleanJSONResponse = (text: string): string => {
 };
 
 export const generateDietPlan = async (profile: UserProfile): Promise<WeeklyDiet> => {
-  // Inicialización obligatoria según directrices técnicas
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const apiKey = getApiKey();
+  const ai = new GoogleGenAI({ apiKey });
   
   const geneticsInfo = profile.geneticMarkers.map(m => {
     const marker = GENETIC_MARKERS.find(gm => gm.id === m);
@@ -42,21 +53,9 @@ export const generateDietPlan = async (profile: UserProfile): Promise<WeeklyDiet
   }).join(', ');
 
   const prompt = `Actúa como un Chef Ejecutivo y Nutricionista Clínico. Genera un plan nutricional de 7 días COMPLETAMENTE EN ${profile.language === 'es' ? 'ESPAÑOL' : 'INGLÉS'}.
-
-    PACIENTE:
-    - Edad: ${profile.age} | Sexo: ${profile.gender}
-    - Peso: ${profile.weight}kg | Talla: ${profile.height}cm | Cintura: ${profile.waist}cm
-    - Actividad: ${profile.activityLevel} | Pasos: ${profile.basalSteps}
-    - Deporte: ${profile.exerciseType} (${profile.exerciseFrequency} días/semana)
-    - Salud: ${diseasesWithNotes || 'Ninguna'} | Medicación: ${profile.treatments.join(', ') || 'Ninguna'}
-    - Genética: ${geneticsInfo || 'No conocida'}
-    - Dieta preferida: ${profile.dietType}
-
-    REQUISITOS:
-    1. Ajuste calórico para adelgazamiento progresivo y saludable.
-    2. Instrucciones de cocina detalladas y profesionales.
-    3. Recomendaciones específicas de NEAT (actividad diaria) y suplementación.
-  `;
+    PACIENTE: Edad ${profile.age}, ${profile.gender}, ${profile.weight}kg, Talla ${profile.height}cm.
+    Dieta: ${profile.dietType}. Salud: ${diseasesWithNotes || 'Ninguna'}. Genética: ${geneticsInfo || 'No conocida'}.
+    REQUISITOS: Ajuste calórico para adelgazamiento y recetas profesionales paso a paso.`;
 
   try {
     const response = await ai.models.generateContent({
@@ -93,22 +92,19 @@ export const generateDietPlan = async (profile: UserProfile): Promise<WeeklyDiet
       }
     });
 
-    const text = response.text;
-    if (!text) throw new Error("La IA devolvió una respuesta vacía.");
-    
-    return JSON.parse(cleanJSONResponse(text)) as WeeklyDiet;
+    return JSON.parse(cleanJSONResponse(response.text || "")) as WeeklyDiet;
   } catch (error: any) {
-    console.error("Error en generateDietPlan:", error);
+    console.error("Gemini API Error:", error);
     throw error;
   }
 };
 
 export const getMealAlternatives = async (originalMeal: Meal, profile: UserProfile): Promise<Meal[]> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const apiKey = getApiKey();
+  const ai = new GoogleGenAI({ apiKey });
   
   const prompt = `Genera 2 alternativas saludables para: "${originalMeal.name}" (${originalMeal.calories} kcal).
-    Estilo de dieta: ${profile.dietType}. Idioma: ${profile.language === 'es' ? 'Español' : 'Inglés'}.
-  `;
+    Estilo de dieta: ${profile.dietType}. Idioma: ${profile.language === 'es' ? 'Español' : 'Inglés'}.`;
 
   try {
     const response = await ai.models.generateContent({
@@ -118,15 +114,10 @@ export const getMealAlternatives = async (originalMeal: Meal, profile: UserProfi
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: MEAL_PROPERTIES,
-            required: MEAL_REQUIRED
-          }
+          items: { type: Type.OBJECT, properties: MEAL_PROPERTIES, required: MEAL_REQUIRED }
         }
       }
     });
-
     return JSON.parse(cleanJSONResponse(response.text || "[]")) as Meal[];
   } catch (error) {
     return [];

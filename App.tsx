@@ -15,7 +15,7 @@ const App: React.FC = () => {
   const [diet, setDiet] = useState<WeeklyDiet | null>(null);
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'plan' | 'tracking' | 'profile' | 'refs'>('plan');
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{title: string, msg: string, code?: string} | null>(null);
   const [lang, setLang] = useState<Language>(() => {
     const saved = localStorage.getItem('nutriplan_lang');
     return (saved as Language) || 'es';
@@ -27,26 +27,18 @@ const App: React.FC = () => {
     const savedProfile = localStorage.getItem('nutriplan_profile');
     const savedHistory = localStorage.getItem('nutriplan_history');
     const savedDiet = localStorage.getItem('nutriplan_diet');
-    
     if (savedProfile) setProfile(JSON.parse(savedProfile));
     if (savedHistory) setHistory(JSON.parse(savedHistory));
     if (savedDiet) setDiet(JSON.parse(savedDiet));
   }, []);
 
-  const handleLanguageChange = (newLang: Language) => {
-    setLang(newLang);
-    localStorage.setItem('nutriplan_lang', newLang);
-  };
-
   const handleSaveProfile = async (newProfile: UserProfile) => {
     setLoading(true);
     setError(null);
     try {
-      // Intentamos generar la dieta antes de machacar el perfil actual
       const profileWithLang = { ...newProfile, language: lang };
       const generatedDiet = await generateDietPlan(profileWithLang);
       
-      // Si la generación tiene éxito, guardamos todo
       setProfile(profileWithLang);
       setDiet(generatedDiet);
       
@@ -57,48 +49,36 @@ const App: React.FC = () => {
         bmi: calculateBMI(newProfile.weight, newProfile.height)
       };
       
-      const newHistory = [...history, newEntry];
-      setHistory(newHistory);
+      setHistory(prev => {
+        const h = [...prev, newEntry];
+        localStorage.setItem('nutriplan_history', JSON.stringify(h));
+        return h;
+      });
       
       localStorage.setItem('nutriplan_profile', JSON.stringify(profileWithLang));
-      localStorage.setItem('nutriplan_history', JSON.stringify(newHistory));
       localStorage.setItem('nutriplan_diet', JSON.stringify(generatedDiet));
       setActiveTab('plan');
     } catch (err: any) {
-      console.error("Error crítico de generación:", err);
+      console.error("Critical Generation Error:", err);
+      const isKeyError = err.message.includes("API_KEY") || err.message.includes("API Key");
       
-      // Analizamos el mensaje del error para dar una pista clara
-      let userFriendlyError = err.message || "Error desconocido";
-      
-      if (userFriendlyError.includes("API Key") || userFriendlyError.includes("API_KEY")) {
-        userFriendlyError = lang === 'es' 
-          ? "ERROR DE CONFIGURACIÓN: La API KEY no es válida o no está presente en el navegador. Revisa las 'Environment Variables' en Render."
-          : "CONFIGURATION ERROR: API KEY is invalid or missing in the browser. Check Render Environment Variables.";
-      }
-
-      setError(userFriendlyError);
-      
-      // NO limpiamos el perfil para que el usuario pueda corregir y reintentar
-      // pero si el perfil era nulo, lo mantenemos como objeto temporal para que el formulario no se borre
-      if (!profile) {
-        // Esto permite que el componente ProfileForm mantenga los datos si se pasan como initialData
-        // pero aquí solo mostramos el error y el loading se detiene.
-      }
+      setError({
+        title: isKeyError ? (lang === 'es' ? 'Error de Inyección de Clave' : 'Key Injection Error') : (lang === 'es' ? 'Error de Generación' : 'Generation Error'),
+        msg: isKeyError 
+          ? (lang === 'es' 
+              ? "Render no está inyectando tu API_KEY en el código del navegador. En Static Sites, las variables solo están disponibles durante el build. Asegúrate de que tu herramienta (Vite/Webpack) esté configurada para reemplazar process.env.API_KEY o usa el prefijo adecuado."
+              : "Render is not injecting your API_KEY into the browser code. In Static Sites, variables are only available during build-time. Ensure your build tool is configured to replace process.env.API_KEY.")
+          : err.message,
+        code: isKeyError ? "ERR_BUILD_VAR_MISSING" : "ERR_GEN_AI_FAILURE"
+      });
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSaveDietManual = (dietToSave: WeeklyDiet) => {
-    localStorage.setItem('nutriplan_diet', JSON.stringify(dietToSave));
-    setDiet(dietToSave);
-  };
-
   const handleReset = () => {
     if (confirm(t.reset_confirm)) {
-      localStorage.removeItem('nutriplan_profile');
-      localStorage.removeItem('nutriplan_history');
-      localStorage.removeItem('nutriplan_diet');
+      localStorage.clear();
       setProfile(null);
       setDiet(null);
       setHistory([]);
@@ -106,256 +86,129 @@ const App: React.FC = () => {
     }
   };
 
-  const logDailyProgress = (weight: number, waist: number) => {
-    if (!profile) return;
-    const newEntry: ProgressEntry = {
-      date: new Date().toISOString(),
-      weight,
-      waist,
-      bmi: calculateBMI(weight, profile.height)
-    };
-    const newHistory = [...history, newEntry];
-    setHistory(newHistory);
-    localStorage.setItem('nutriplan_history', JSON.stringify(newHistory));
-    
-    const updatedProfile = { ...profile, weight, waist };
-    setProfile(updatedProfile);
-    localStorage.setItem('nutriplan_profile', JSON.stringify(updatedProfile));
-  };
-
-  const exportHistoryToPDF = () => {
-    const { jsPDF } = (window as any).jspdf;
-    const doc = new jsPDF();
-    const pageWidth = doc.internal.pageSize.getWidth();
-
-    doc.setFillColor(51, 65, 85);
-    doc.rect(0, 0, pageWidth, 40, 'F');
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(22);
-    doc.setFont("helvetica", "bold");
-    doc.text(t.report_evo_title, 15, 25);
-    doc.setFontSize(10);
-    doc.text(`${t.report_generated}: ${new Date().toLocaleDateString(lang === 'es' ? 'es-ES' : 'en-US')}`, 15, 33);
-
-    const tableData = history.map(entry => [
-      new Date(entry.date).toLocaleDateString(lang === 'es' ? 'es-ES' : 'en-US'),
-      `${entry.weight} kg`,
-      `${entry.waist} cm`,
-      entry.bmi.toString()
-    ]);
-
-    (doc as any).autoTable({
-      startY: 50,
-      head: [[lang === 'es' ? 'Fecha' : 'Date', lang === 'es' ? 'Peso' : 'Weight', lang === 'es' ? 'Cintura' : 'Waist', 'IMC']],
-      body: tableData,
-      theme: 'grid',
-      headStyles: { fillColor: [16, 185, 129] }
-    });
-
-    doc.save(`Evolucion_NutriPlan_${new Date().getTime()}.pdf`);
-  };
-
-  const exportHistoryToCSV = () => {
-    const headers = lang === 'es' ? "Fecha,Peso(kg),Cintura(cm),IMC\n" : "Date,Weight(kg),Waist(cm),BMI\n";
-    const rows = history.map(e => `${new Date(e.date).toLocaleDateString()},${e.weight},${e.waist},${e.bmi}`).join("\n");
-    const blob = new Blob([headers + rows], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'mi-evolucion-nutriplan.csv';
-    a.click();
-  };
-
-  const shareHistoryViaEmail = () => {
-    if (history.length === 0) return;
-    const lastEntry = history[history.length - 1];
-    const subject = encodeURIComponent(lang === 'es' ? "Mi Evolución Nutricional - NutriPlan AI" : "My Nutritional Progress - NutriPlan AI");
-    const body = encodeURIComponent(lang === 'es' 
-      ? `Hola,\n\nTe comparto mi evolución nutricional registrada en NutriPlan AI.\n\nÚltimo registro:\n- Peso: ${lastEntry.weight} kg\n- Cintura: ${lastEntry.waist} cm\n- IMC: ${lastEntry.bmi}\n\nGenerado con Inteligencia Artificial.`
-      : `Hi,\n\nSharing my nutritional progress logged in NutriPlan AI.\n\nLatest log:\n- Weight: ${lastEntry.weight} kg\n- Waist: ${lastEntry.waist} cm\n- BMI: ${lastEntry.bmi}\n\nGenerated with AI.`);
-    window.location.href = `mailto:?subject=${subject}&body=${body}`;
-  };
-
   return (
-    <div className="min-h-screen bg-slate-50 pb-24 lg:pb-8 relative">
+    <div className="min-h-screen bg-slate-50 pb-24 lg:pb-8 relative font-sans text-slate-900">
       {loading && (
-        <div className="fixed inset-0 z-[100] bg-slate-50/80 backdrop-blur-sm flex flex-col items-center justify-center animate-in fade-in duration-300">
-          <div className="w-16 h-16 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mb-6"></div>
-          <div className="text-center space-y-2">
-            <p className="text-slate-900 font-bold text-lg">{t.working}</p>
-            <p className="text-slate-500 max-w-xs text-sm italic">{t.working_desc}</p>
+        <div className="fixed inset-0 z-[100] bg-slate-900/40 backdrop-blur-md flex flex-col items-center justify-center animate-in fade-in duration-500">
+          <div className="w-20 h-20 border-4 border-emerald-400 border-t-transparent rounded-full animate-spin mb-8 shadow-2xl shadow-emerald-500/20"></div>
+          <div className="text-center space-y-3 px-6">
+            <p className="text-white font-black text-2xl tracking-tighter uppercase">{t.working}</p>
+            <p className="text-emerald-100/80 max-w-xs text-sm font-medium italic">{t.working_desc}</p>
           </div>
         </div>
       )}
 
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
+      <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm backdrop-blur-lg bg-white/80">
         <div className="max-w-4xl mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-9 h-9 bg-emerald-600 rounded-xl flex items-center justify-center text-white font-black shadow-sm">N</div>
-            <h1 className="text-xl font-black text-slate-800 tracking-tight">{t.app_title} <span className="text-emerald-600">AI</span></h1>
-          </div>
           <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-emerald-600 rounded-2xl flex items-center justify-center text-white font-black shadow-lg shadow-emerald-100">N</div>
+            <h1 className="text-xl font-black text-slate-800 tracking-tighter">{t.app_title} <span className="text-emerald-600">AI</span></h1>
+          </div>
+          <div className="flex items-center gap-4">
              <select 
                value={lang} 
-               onChange={(e) => handleLanguageChange(e.target.value as Language)}
-               className="bg-slate-100 text-slate-700 text-xs font-bold py-1 px-2 rounded border-none focus:ring-0 outline-none"
+               onChange={(e) => setLang(e.target.value as Language)}
+               className="bg-slate-100 text-slate-700 text-[10px] font-black py-1.5 px-3 rounded-xl border-none focus:ring-0 outline-none uppercase tracking-widest"
              >
                <option value="es">ES</option>
                <option value="en">EN</option>
              </select>
-             <button onClick={() => setActiveTab('refs')} className="p-2 text-slate-400 hover:text-emerald-600 transition-colors">
-               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-             </button>
              {profile && (
-               <button onClick={handleReset} className="p-2 text-rose-400 hover:text-rose-600 transition-colors" title="Reset">
-                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+               <button onClick={handleReset} className="p-2.5 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all" title="Reset">
+                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                </button>
              )}
           </div>
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-4 py-8">
+      <main className="max-w-4xl mx-auto px-4 py-10">
         {error && (
-          <div className="mb-6 p-4 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-sm font-medium flex justify-between items-center shadow-sm animate-in slide-in-from-top-4">
-            <div className="flex items-center gap-3">
-              <svg className="w-6 h-6 shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
-              <div>
-                <p className="font-bold">{lang === 'es' ? 'Error de Ejecución' : 'Execution Error'}</p>
-                <p className="text-xs opacity-80">{error}</p>
-              </div>
+          <div className="mb-10 p-6 bg-slate-900 border border-slate-800 rounded-[2.5rem] shadow-2xl animate-in slide-in-from-top-4 duration-500 overflow-hidden relative">
+            <div className="absolute top-0 right-0 p-8 opacity-10">
+              <svg className="w-32 h-32 text-rose-500" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
             </div>
-            <button onClick={() => setError(null)} className="text-rose-900 font-bold px-3 py-1 hover:bg-rose-100 rounded-lg">×</button>
+            <div className="relative z-10 flex flex-col md:flex-row gap-6 items-start">
+              <div className="bg-rose-500/20 p-4 rounded-3xl text-rose-400">
+                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+              </div>
+              <div className="flex-1 space-y-2">
+                <h3 className="text-xl font-black text-white tracking-tight uppercase">{error.title}</h3>
+                <p className="text-slate-400 text-sm leading-relaxed font-medium">{error.msg}</p>
+                {error.code && <span className="inline-block px-2 py-0.5 bg-slate-800 text-slate-500 text-[10px] font-black rounded uppercase tracking-widest">{error.code}</span>}
+              </div>
+              <button onClick={() => setError(null)} className="text-slate-500 hover:text-white transition-colors font-black text-2xl">×</button>
+            </div>
           </div>
         )}
 
         {!profile ? (
-          <div className="max-w-xl mx-auto">
-            <div className="text-center mb-10">
-              <span className="inline-block px-3 py-1 bg-emerald-100 text-emerald-700 text-xs font-bold rounded-full mb-3 uppercase tracking-widest">{t.ai_tag}</span>
-              <h2 className="text-3xl font-black text-slate-900 mb-4">{t.app_subtitle}</h2>
-              <p className="text-slate-600">{t.ai_desc}</p>
+          <div className="max-w-2xl mx-auto space-y-12">
+            <div className="text-center space-y-4">
+              <span className="inline-block px-4 py-1.5 bg-emerald-100 text-emerald-700 text-[10px] font-black rounded-full uppercase tracking-[0.3em] shadow-sm">{t.ai_tag}</span>
+              <h2 className="text-5xl font-black text-slate-900 tracking-tighter leading-none">{t.app_subtitle}</h2>
+              <p className="text-slate-500 text-lg font-medium max-w-lg mx-auto leading-snug">{t.ai_desc}</p>
             </div>
-            {/* Si hubo un error pero no hay perfil guardado, el formulario seguirá aquí intacto si el estado local se mantiene (en este caso el estado del form es interno a ProfileForm) */}
             <ProfileForm onSave={handleSaveProfile} language={lang} />
           </div>
         ) : (
-          <div className="space-y-8">
+          <div className="space-y-12">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 text-center">
-                <span className="text-xs font-bold text-slate-400 uppercase block mb-1">{t.card_bmi}</span>
-                <span className="text-xl font-bold text-slate-800">{calculateBMI(profile.weight, profile.height)}</span>
-              </div>
-              <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 text-center">
-                <span className="text-xs font-bold text-slate-400 uppercase block mb-1">{t.card_waist}</span>
-                <span className="text-xl font-bold text-slate-800">{profile.waist} <small className="text-xs">cm</small></span>
-              </div>
-              <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 text-center">
-                <span className="text-xs font-bold text-slate-400 uppercase block mb-1">{t.card_cv_risk}</span>
-                <span className={`text-xl font-bold ${calculateCVRiskScore(profile.waist, profile.height) === 'Bajo' ? 'text-emerald-600' : 'text-rose-500'}`}>
-                  {calculateCVRiskScore(profile.waist, profile.height)}
-                </span>
-              </div>
-              <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 text-center">
-                <span className="text-xs font-bold text-slate-400 uppercase block mb-1">{t.card_weight}</span>
-                <span className="text-xl font-bold text-slate-800">{profile.weight} <small className="text-xs">kg</small></span>
-              </div>
+              {[
+                { label: t.card_bmi, val: calculateBMI(profile.weight, profile.height), color: 'text-slate-800' },
+                { label: t.card_waist, val: `${profile.waist} cm`, color: 'text-slate-800' },
+                { label: t.card_cv_risk, val: calculateCVRiskScore(profile.waist, profile.height), color: calculateCVRiskScore(profile.waist, profile.height) === 'Bajo' ? 'text-emerald-600' : 'text-rose-500' },
+                { label: t.card_weight, val: `${profile.weight} kg`, color: 'text-slate-800' }
+              ].map((card, i) => (
+                <div key={i} className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100 flex flex-col justify-between transition-all hover:shadow-xl hover:shadow-slate-200/50">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">{card.label}</span>
+                  <span className={`text-2xl font-black ${card.color} tracking-tighter`}>{card.val}</span>
+                </div>
+              ))}
             </div>
 
-            <div className="flex gap-4 border-b border-slate-200 overflow-x-auto">
-              <button onClick={() => setActiveTab('plan')} className={`pb-3 px-2 font-bold text-sm transition-all whitespace-nowrap ${activeTab === 'plan' ? 'text-emerald-600 border-b-2 border-emerald-600' : 'text-slate-400'}`}>{t.tab_diet}</button>
-              <button onClick={() => setActiveTab('tracking')} className={`pb-3 px-2 font-bold text-sm transition-all whitespace-nowrap ${activeTab === 'tracking' ? 'text-emerald-600 border-b-2 border-emerald-600' : 'text-slate-400'}`}>{t.tab_evolution}</button>
-              <button onClick={() => setActiveTab('profile')} className={`pb-3 px-2 font-bold text-sm transition-all whitespace-nowrap ${activeTab === 'profile' ? 'text-emerald-600 border-b-2 border-emerald-600' : 'text-slate-400'}`}>{t.tab_profile}</button>
-              <button onClick={() => setActiveTab('refs')} className={`pb-3 px-2 font-bold text-sm transition-all whitespace-nowrap ${activeTab === 'refs' ? 'text-emerald-600 border-b-2 border-emerald-600' : 'text-slate-400'}`}>{t.tab_science}</button>
+            <div className="flex gap-2 border-b border-slate-200 overflow-x-auto scrollbar-hide pb-2">
+              {[
+                { id: 'plan', label: t.tab_diet },
+                { id: 'tracking', label: t.tab_evolution },
+                { id: 'profile', label: t.tab_profile },
+                { id: 'refs', label: t.tab_science }
+              ].map(tab => (
+                <button 
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id as any)} 
+                  className={`pb-3 px-4 font-black text-xs uppercase tracking-widest transition-all whitespace-nowrap ${activeTab === tab.id ? 'text-emerald-600 border-b-4 border-emerald-600' : 'text-slate-400 hover:text-slate-600'}`}
+                >
+                  {tab.label}
+                </button>
+              ))}
             </div>
 
-            {activeTab === 'plan' && diet && (
-              <DietView diet={diet} onSave={handleSaveDietManual} onBack={handleReset} language={lang} />
-            )}
-            
-            {activeTab === 'tracking' && (
-              <div className="space-y-6">
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                  <h3 className="text-lg font-bold text-slate-800">{t.tracking_title}</h3>
-                  <div className="flex gap-2">
-                    <button onClick={exportHistoryToPDF} className="px-3 py-1.5 text-xs font-bold bg-slate-800 text-white rounded-lg flex items-center gap-2 hover:bg-slate-900 transition-colors">
-                      {t.btn_pdf}
-                    </button>
-                    <button onClick={exportHistoryToCSV} className="px-3 py-1.5 text-xs font-bold bg-white text-slate-700 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
-                      {t.btn_csv}
-                    </button>
-                    <button onClick={shareHistoryViaEmail} className="px-3 py-1.5 text-xs font-bold bg-emerald-600 text-white rounded-lg flex items-center gap-2 hover:bg-emerald-700 transition-colors">
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
-                      {t.btn_share}
-                    </button>
+            <div className="animate-in fade-in slide-in-from-bottom-4 duration-700">
+              {activeTab === 'plan' && diet && <DietView diet={diet} language={lang} onBack={() => setActiveTab('profile')} />}
+              {activeTab === 'tracking' && (
+                <div className="space-y-10">
+                  <Charts data={history} language={lang} />
+                </div>
+              )}
+              {activeTab === 'profile' && <ProfileForm onSave={handleSaveProfile} initialData={profile} language={lang} />}
+              {activeTab === 'refs' && (
+                <div className="bg-white p-10 rounded-[3rem] shadow-sm border border-slate-100 space-y-10">
+                  <h3 className="text-3xl font-black text-slate-900 tracking-tighter">{t.refs_title}</h3>
+                  <div className="grid gap-8">
+                    {Object.entries(SCIENTIFIC_REFERENCES).map(([key, text]) => (
+                      <section key={key} className="space-y-2">
+                        <h4 className="font-black text-emerald-700 text-[10px] uppercase tracking-widest flex items-center gap-2">
+                           <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span>
+                           {key}
+                        </h4>
+                        <p className="text-slate-600 text-sm font-medium leading-relaxed">{text}</p>
+                      </section>
+                    ))}
                   </div>
                 </div>
-
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <input type="number" step="0.1" placeholder={t.tracking_weight} id="w-in" className="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none" />
-                    <input type="number" placeholder={t.tracking_waist} id="wa-in" className="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none" />
-                    <button 
-                      onClick={() => {
-                        const w = (document.getElementById('w-in') as HTMLInputElement).value;
-                        const wa = (document.getElementById('wa-in') as HTMLInputElement).value;
-                        if(w && wa) {
-                          logDailyProgress(Number(w), Number(wa));
-                          (document.getElementById('w-in') as HTMLInputElement).value = '';
-                          (document.getElementById('wa-in') as HTMLInputElement).value = '';
-                        }
-                      }}
-                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 rounded-lg transition-colors shadow-sm"
-                    >
-                      {t.tracking_btn}
-                    </button>
-                  </div>
-                </div>
-                <Charts data={history} language={lang} />
-              </div>
-            )}
-            
-            {activeTab === 'profile' && <ProfileForm onSave={handleSaveProfile} initialData={profile} language={lang} />}
-            
-            {activeTab === 'refs' && (
-              <div className="space-y-6">
-                <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-100 space-y-6">
-                  <h3 className="text-xl font-bold text-slate-900 border-b pb-2">{t.refs_title}</h3>
-                  <section className="space-y-2">
-                    <h4 className="font-bold text-emerald-700 flex items-center gap-2">
-                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M9 4.804A7.993 7.993 0 002 12a7.993 7.993 0 007 7.196V4.804zM11 4.804v14.392A7.993 7.993 0 0018 12a7.993 7.993 0 00-7-7.196z" /></svg>
-                      {t.refs_methodology}
-                    </h4>
-                    <p className="text-sm text-slate-600 leading-relaxed">{SCIENTIFIC_REFERENCES.diets}</p>
-                  </section>
-                  <section className="space-y-2">
-                    <h4 className="font-bold text-emerald-700 flex items-center gap-2">
-                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M10 2a8 8 0 100 16 8 8 0 000-16zM5 9a1 1 0 011-1h8a1 1 0 110 2H6a1 1 0 01-1-1z" /></svg>
-                      {t.refs_tables}
-                    </h4>
-                    <p className="text-sm text-slate-600 leading-relaxed">{SCIENTIFIC_REFERENCES.nutritionalTables}</p>
-                  </section>
-                  <section className="space-y-2">
-                    <h4 className="font-bold text-emerald-700 flex items-center gap-2">
-                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" /></svg>
-                      {t.refs_cv_risk}
-                    </h4>
-                    <p className="text-sm text-slate-600 leading-relaxed">{SCIENTIFIC_REFERENCES.cvRisk}</p>
-                  </section>
-                  <section className="space-y-3">
-                    <h4 className="font-bold text-rose-700 flex items-center gap-2">
-                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" /></svg>
-                      {t.refs_meds}
-                    </h4>
-                    <ul className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                      {MEDICATIONS_IMPACT.map((med, i) => (
-                        <li key={i} className="text-xs text-slate-600 bg-slate-50 p-2 rounded-lg border border-slate-100">{med}</li>
-                      ))}
-                    </ul>
-                  </section>
-                </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         )}
       </main>
