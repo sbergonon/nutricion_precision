@@ -28,13 +28,14 @@ const cleanJSONResponse = (text: string): string => {
 };
 
 export const generateDietPlan = async (profile: UserProfile): Promise<WeeklyDiet> => {
-  // Inicialización directa según directrices
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  
+  // Verificación inmediata antes de instanciar
   if (!process.env.API_KEY) {
-    throw new Error("La clave API_KEY no está definida en el entorno (process.env.API_KEY es undefined).");
+    throw new Error("API_KEY_MISSING: La variable process.env.API_KEY no ha sido inyectada durante el build.");
   }
 
+  // Instanciación fresca según directrices de "API Key Selection"
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  
   const geneticsInfo = profile.geneticMarkers.map(m => {
     const marker = GENETIC_MARKERS.find(gm => gm.id === m);
     return `${marker?.label}: ${marker?.desc}`;
@@ -123,13 +124,13 @@ export const generateDietPlan = async (profile: UserProfile): Promise<WeeklyDiet
     return JSON.parse(cleanedText) as WeeklyDiet;
   } catch (error: any) {
     console.error("Gemini API Error Detail:", error);
-    throw new Error(error.message || "Error desconocido en la API de Gemini");
+    throw error;
   }
 };
 
 export const getMealAlternatives = async (originalMeal: Meal, profile: UserProfile): Promise<Meal[]> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   if (!process.env.API_KEY) return [];
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   const prompt = `Como Chef-Nutricionista, genera 2 platos alternativos para esta comida: "${originalMeal.name}".
     RESTRICCIONES CRÍTICAS:

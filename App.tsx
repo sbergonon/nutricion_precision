@@ -64,8 +64,15 @@ const App: React.FC = () => {
       setActiveTab('plan');
     } catch (err: any) {
       console.error("Critical Generation Error:", err);
-      // Mostramos el error real para diagnóstico
-      setError(`${lang === 'es' ? 'Error detectado' : 'Error detected'}: ${err.message}`);
+      // Mensaje mejorado para depuración en Render
+      const errorMsg = err.message || "";
+      if (errorMsg.includes("API Key") || errorMsg.includes("API_KEY_MISSING")) {
+        setError(lang === 'es' 
+          ? "ERROR DE CLAVE: La API KEY no está llegando a la aplicación. En Render, asegúrate de que la variable se llame API_KEY y que tu proceso de build la inyecte correctamente."
+          : "KEY ERROR: API KEY is not reaching the app. In Render, ensure the variable is named API_KEY and your build process injects it.");
+      } else {
+        setError(`${lang === 'es' ? 'Error detectado' : 'Error detected'}: ${errorMsg}`);
+      }
     } finally {
       setLoading(false);
     }
