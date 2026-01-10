@@ -42,9 +42,11 @@ const App: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
+      // Intentamos generar la dieta antes de machacar el perfil actual
       const profileWithLang = { ...newProfile, language: lang };
       const generatedDiet = await generateDietPlan(profileWithLang);
       
+      // Si la generación tiene éxito, guardamos todo
       setProfile(profileWithLang);
       setDiet(generatedDiet);
       
@@ -63,15 +65,24 @@ const App: React.FC = () => {
       localStorage.setItem('nutriplan_diet', JSON.stringify(generatedDiet));
       setActiveTab('plan');
     } catch (err: any) {
-      console.error("Critical Generation Error:", err);
-      // Mensaje mejorado para depuración en Render
-      const errorMsg = err.message || "";
-      if (errorMsg.includes("API Key") || errorMsg.includes("API_KEY_MISSING")) {
-        setError(lang === 'es' 
-          ? "ERROR DE CLAVE: La API KEY no está llegando a la aplicación. En Render, asegúrate de que la variable se llame API_KEY y que tu proceso de build la inyecte correctamente."
-          : "KEY ERROR: API KEY is not reaching the app. In Render, ensure the variable is named API_KEY and your build process injects it.");
-      } else {
-        setError(`${lang === 'es' ? 'Error detectado' : 'Error detected'}: ${errorMsg}`);
+      console.error("Error crítico de generación:", err);
+      
+      // Analizamos el mensaje del error para dar una pista clara
+      let userFriendlyError = err.message || "Error desconocido";
+      
+      if (userFriendlyError.includes("API Key") || userFriendlyError.includes("API_KEY")) {
+        userFriendlyError = lang === 'es' 
+          ? "ERROR DE CONFIGURACIÓN: La API KEY no es válida o no está presente en el navegador. Revisa las 'Environment Variables' en Render."
+          : "CONFIGURATION ERROR: API KEY is invalid or missing in the browser. Check Render Environment Variables.";
+      }
+
+      setError(userFriendlyError);
+      
+      // NO limpiamos el perfil para que el usuario pueda corregir y reintentar
+      // pero si el perfil era nulo, lo mantenemos como objeto temporal para que el formulario no se borre
+      if (!profile) {
+        // Esto permite que el componente ProfileForm mantenga los datos si se pasan como initialData
+        // pero aquí solo mostramos el error y el loading se detiene.
       }
     } finally {
       setLoading(false);
@@ -225,6 +236,7 @@ const App: React.FC = () => {
               <h2 className="text-3xl font-black text-slate-900 mb-4">{t.app_subtitle}</h2>
               <p className="text-slate-600">{t.ai_desc}</p>
             </div>
+            {/* Si hubo un error pero no hay perfil guardado, el formulario seguirá aquí intacto si el estado local se mantiene (en este caso el estado del form es interno a ProfileForm) */}
             <ProfileForm onSave={handleSaveProfile} language={lang} />
           </div>
         ) : (

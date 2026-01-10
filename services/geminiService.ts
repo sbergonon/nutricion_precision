@@ -28,12 +28,7 @@ const cleanJSONResponse = (text: string): string => {
 };
 
 export const generateDietPlan = async (profile: UserProfile): Promise<WeeklyDiet> => {
-  // Verificación inmediata antes de instanciar
-  if (!process.env.API_KEY) {
-    throw new Error("API_KEY_MISSING: La variable process.env.API_KEY no ha sido inyectada durante el build.");
-  }
-
-  // Instanciación fresca según directrices de "API Key Selection"
+  // Inicialización obligatoria según directrices técnicas
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   const geneticsInfo = profile.geneticMarkers.map(m => {
@@ -46,44 +41,22 @@ export const generateDietPlan = async (profile: UserProfile): Promise<WeeklyDiet
     return note ? `${d} (Detalles: ${note})` : d;
   }).join(', ');
 
-  const prompt = `Actúa como un Chef Ejecutivo, Nutricionista Clínico, Farmacéutico y Entrenador de Alto Rendimiento. Genera un plan integral COMPLETAMENTE EN IDIOMA ${profile.language === 'es' ? 'ESPAÑOL' : 'INGLÉS'}.
+  const prompt = `Actúa como un Chef Ejecutivo y Nutricionista Clínico. Genera un plan nutricional de 7 días COMPLETAMENTE EN ${profile.language === 'es' ? 'ESPAÑOL' : 'INGLÉS'}.
 
-    PERFIL DEL PACIENTE:
-    - Edad: ${profile.age} años | Sexo: ${profile.gender}
-    - Peso: ${profile.weight} kg | Talla: ${profile.height} cm | Cintura: ${profile.waist} cm
-    - Nivel de Actividad General Declarado: ${profile.activityLevel}
-    
-    ACTIVIDAD BASAL (NEAT):
-    - Pasos diarios promedio: ${profile.basalSteps}
-    - Descripción de actividad diaria: ${profile.basalActivityDesc || 'No especificada'}
+    PACIENTE:
+    - Edad: ${profile.age} | Sexo: ${profile.gender}
+    - Peso: ${profile.weight}kg | Talla: ${profile.height}cm | Cintura: ${profile.waist}cm
+    - Actividad: ${profile.activityLevel} | Pasos: ${profile.basalSteps}
+    - Deporte: ${profile.exerciseType} (${profile.exerciseFrequency} días/semana)
+    - Salud: ${diseasesWithNotes || 'Ninguna'} | Medicación: ${profile.treatments.join(', ') || 'Ninguna'}
+    - Genética: ${geneticsInfo || 'No conocida'}
+    - Dieta preferida: ${profile.dietType}
 
-    EJERCICIO DEPORTIVO:
-    - Deporte Principal: ${profile.exerciseType}
-    - Frecuencia Actual: ${profile.exerciseFrequency} días/semana
-    - Duración Media: ${profile.exerciseDuration} minutos/sesión
-    - Descripción de su Ejercicio: ${profile.exerciseDescription || 'No especificada'}
-
-    SALUD Y BIOMÉDICA:
-    - Suplementos Actuales: ${profile.supplements.join(', ') || 'Ninguno'}
-    - Enfermedades y Observaciones: ${diseasesWithNotes || 'Ninguna'}
-    - Tratamientos Médicos: ${profile.treatments.join(', ') || 'Ninguno'}
-    - Marcadores Genéticos: ${geneticsInfo || 'No conocidos'}
-    - Estilo de Alimentación: ${profile.dietType}
-
-    REGLAS DE ORO:
-    1. INSTRUCCIONES PRO: En "instructions", detalla el proceso paso a paso con técnicas profesionales.
-    2. NUTRICIÓN DE PRECISIÓN: Ajusta calorías (TDEE) para balance metabólico considerando tanto su actividad basal (${profile.basalSteps} pasos) como su deporte.
-    3. PLAN DE MOVIMIENTO: Genera recomendaciones de ejercicio específicas en "exercisePlan".
-    4. ESTRATEGIA NEAT: Genera recomendaciones específicas para optimizar su actividad basal diaria (pasos, hábitos diarios) en "basalRecommendations".
-    5. GUÍA DE SUPLEMENTACIÓN: En "supplementAdvise", analiza sus suplementos actuales y sugiere otros con sólida evidencia.
-    6. EXERCISE NOTE: En cada día (day), añade una nota vinculada al esfuerzo de ese día.
+    REQUISITOS:
+    1. Ajuste calórico para adelgazamiento progresivo y saludable.
+    2. Instrucciones de cocina detalladas y profesionales.
+    3. Recomendaciones específicas de NEAT (actividad diaria) y suplementación.
   `;
-
-  const mealSchema = {
-    type: Type.OBJECT,
-    properties: MEAL_PROPERTIES,
-    required: MEAL_REQUIRED
-  };
 
   try {
     const response = await ai.models.generateContent({
@@ -100,10 +73,10 @@ export const generateDietPlan = async (profile: UserProfile): Promise<WeeklyDiet
                 type: Type.OBJECT,
                 properties: {
                   day: { type: Type.STRING },
-                  breakfast: mealSchema,
-                  lunch: mealSchema,
-                  snack: mealSchema,
-                  dinner: mealSchema,
+                  breakfast: { type: Type.OBJECT, properties: MEAL_PROPERTIES, required: MEAL_REQUIRED },
+                  lunch: { type: Type.OBJECT, properties: MEAL_PROPERTIES, required: MEAL_REQUIRED },
+                  snack: { type: Type.OBJECT, properties: MEAL_PROPERTIES, required: MEAL_REQUIRED },
+                  dinner: { type: Type.OBJECT, properties: MEAL_PROPERTIES, required: MEAL_REQUIRED },
                   totalCalories: { type: Type.NUMBER },
                   exerciseNote: { type: Type.STRING }
                 },
@@ -120,23 +93,21 @@ export const generateDietPlan = async (profile: UserProfile): Promise<WeeklyDiet
       }
     });
 
-    const cleanedText = cleanJSONResponse(response.text || "");
-    return JSON.parse(cleanedText) as WeeklyDiet;
+    const text = response.text;
+    if (!text) throw new Error("La IA devolvió una respuesta vacía.");
+    
+    return JSON.parse(cleanJSONResponse(text)) as WeeklyDiet;
   } catch (error: any) {
-    console.error("Gemini API Error Detail:", error);
+    console.error("Error en generateDietPlan:", error);
     throw error;
   }
 };
 
 export const getMealAlternatives = async (originalMeal: Meal, profile: UserProfile): Promise<Meal[]> => {
-  if (!process.env.API_KEY) return [];
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
-  const prompt = `Como Chef-Nutricionista, genera 2 platos alternativos para esta comida: "${originalMeal.name}".
-    RESTRICCIONES CRÍTICAS:
-    1. NUTRICIÓN: Aproximadamente ${originalMeal.calories} kcal, ${originalMeal.protein}g proteína, ${originalMeal.carbs}g carbos y ${originalMeal.fats}g grasas (+/- 5%).
-    2. ESTILO: Dieta "${profile.dietType}" e idioma ${profile.language === 'es' ? 'Español' : 'Inglés'}.
-    3. DETALLE: Instrucciones de cocina profesionales.
+  const prompt = `Genera 2 alternativas saludables para: "${originalMeal.name}" (${originalMeal.calories} kcal).
+    Estilo de dieta: ${profile.dietType}. Idioma: ${profile.language === 'es' ? 'Español' : 'Inglés'}.
   `;
 
   try {
@@ -156,8 +127,7 @@ export const getMealAlternatives = async (originalMeal: Meal, profile: UserProfi
       }
     });
 
-    const cleanedText = cleanJSONResponse(response.text || "");
-    return JSON.parse(cleanedText) as Meal[];
+    return JSON.parse(cleanJSONResponse(response.text || "[]")) as Meal[];
   } catch (error) {
     return [];
   }
