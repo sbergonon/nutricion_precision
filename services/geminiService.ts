@@ -17,8 +17,25 @@ const MEAL_PROPERTIES = {
 
 const MEAL_REQUIRED = ["name", "description", "instructions", "prepTime", "difficulty", "calories", "protein", "carbs", "fats"];
 
+// Función auxiliar para limpiar la respuesta y asegurar que sea JSON válido
+const cleanJSONResponse = (text: string): string => {
+  let cleaned = text.trim();
+  if (cleaned.startsWith("```json")) {
+    cleaned = cleaned.replace(/^```json/, "").replace(/```$/, "");
+  } else if (cleaned.startsWith("```")) {
+    cleaned = cleaned.replace(/^```/, "").replace(/```$/, "");
+  }
+  return cleaned.trim();
+};
+
 export const generateDietPlan = async (profile: UserProfile): Promise<WeeklyDiet> => {
-  const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
+  const apiKey = process.env.API_KEY;
+  
+  if (!apiKey) {
+    throw new Error("ERROR: La variable de entorno API_KEY no está configurada en Render.");
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
   
   const geneticsInfo = profile.geneticMarkers.map(m => {
     const marker = GENETIC_MARKERS.find(gm => gm.id === m);
@@ -69,49 +86,54 @@ export const generateDietPlan = async (profile: UserProfile): Promise<WeeklyDiet
     required: MEAL_REQUIRED
   };
 
-  const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
-    contents: prompt,
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          plan: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                day: { type: Type.STRING },
-                breakfast: mealSchema,
-                lunch: mealSchema,
-                snack: mealSchema,
-                dinner: mealSchema,
-                totalCalories: { type: Type.NUMBER },
-                exerciseNote: { type: Type.STRING }
-              },
-              required: ["day", "breakfast", "lunch", "snack", "dinner", "totalCalories"]
-            }
-          },
-          recommendations: { type: Type.STRING },
-          exercisePlan: { type: Type.STRING },
-          basalRecommendations: { type: Type.STRING, description: "Recommendations to improve NEAT/Basal activity based on steps and habits." },
-          supplementAdvise: { type: Type.STRING, description: "Evidence-based supplementation guide." }
-        },
-        required: ["plan", "recommendations", "exercisePlan", "basalRecommendations", "supplementAdvise"]
-      }
-    }
-  });
-
   try {
-    return JSON.parse(response.text) as WeeklyDiet;
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            plan: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  day: { type: Type.STRING },
+                  breakfast: mealSchema,
+                  lunch: mealSchema,
+                  snack: mealSchema,
+                  dinner: mealSchema,
+                  totalCalories: { type: Type.NUMBER },
+                  exerciseNote: { type: Type.STRING }
+                },
+                required: ["day", "breakfast", "lunch", "snack", "dinner", "totalCalories"]
+              }
+            },
+            recommendations: { type: Type.STRING },
+            exercisePlan: { type: Type.STRING },
+            basalRecommendations: { type: Type.STRING },
+            supplementAdvise: { type: Type.STRING }
+          },
+          required: ["plan", "recommendations", "exercisePlan", "basalRecommendations", "supplementAdvise"]
+        }
+      }
+    });
+
+    const cleanedText = cleanJSONResponse(response.text || "");
+    return JSON.parse(cleanedText) as WeeklyDiet;
   } catch (error) {
-    throw new Error("Error procesando la respuesta culinaria, deportiva y farmacológica de la IA.");
+    console.error("Gemini API Error:", error);
+    throw error;
   }
 };
 
 export const getMealAlternatives = async (originalMeal: Meal, profile: UserProfile): Promise<Meal[]> => {
-  const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) return [];
+  
+  const ai = new GoogleGenAI({ apiKey });
   
   const prompt = `Como Chef-Nutricionista, genera 2 platos alternativos para esta comida: "${originalMeal.name}".
     RESTRICCIONES CRÍTICAS:
@@ -120,26 +142,27 @@ export const getMealAlternatives = async (originalMeal: Meal, profile: UserProfi
     3. DETALLE: Instrucciones de cocina profesionales.
   `;
 
-  const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
-    contents: prompt,
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: MEAL_PROPERTIES,
-          required: MEAL_REQUIRED
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: MEAL_PROPERTIES,
+            required: MEAL_REQUIRED
+          }
         }
       }
-    }
-  });
+    });
 
-  try {
-    return JSON.parse(response.text) as Meal[];
+    const cleanedText = cleanJSONResponse(response.text || "");
+    return JSON.parse(cleanedText) as Meal[];
   } catch (error) {
-    console.error("Error generating alternatives:", error);
+    console.error("Alternatives API Error:", error);
     return [];
   }
 };

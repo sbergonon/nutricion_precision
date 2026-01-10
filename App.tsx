@@ -4,7 +4,7 @@ import ProfileForm from './components/ProfileForm';
 import DietView from './components/DietView';
 import Charts from './components/Charts';
 import { UserProfile, ProgressEntry, WeeklyDiet, Language } from './types';
-import { calculateBMI, calculateCVRiskScore, formatDate } from './utils/helpers';
+import { calculateBMI, calculateCVRiskScore } from './utils/helpers';
 import { generateDietPlan } from './services/geminiService';
 import { SCIENTIFIC_REFERENCES, MEDICATIONS_IMPACT } from './constants/medicalData';
 import { getTranslation } from './i18n';
@@ -44,6 +44,7 @@ const App: React.FC = () => {
     try {
       const profileWithLang = { ...newProfile, language: lang };
       const generatedDiet = await generateDietPlan(profileWithLang);
+      
       setProfile(profileWithLang);
       setDiet(generatedDiet);
       
@@ -62,7 +63,8 @@ const App: React.FC = () => {
       localStorage.setItem('nutriplan_diet', JSON.stringify(generatedDiet));
       setActiveTab('plan');
     } catch (err) {
-      setError(lang === 'es' ? "Error de conexión. Intente de nuevo." : "Connection error. Try again.");
+      console.error("Generation Error Details:", err);
+      setError(lang === 'es' ? "Error de conexión con la IA. Verifique su API KEY en el panel de Render." : "AI Connection error. Check your API KEY in Render dashboard.");
     } finally {
       setLoading(false);
     }
@@ -70,6 +72,7 @@ const App: React.FC = () => {
 
   const handleSaveDietManual = (dietToSave: WeeklyDiet) => {
     localStorage.setItem('nutriplan_diet', JSON.stringify(dietToSave));
+    setDiet(dietToSave);
   };
 
   const handleReset = () => {
@@ -145,6 +148,7 @@ const App: React.FC = () => {
   };
 
   const shareHistoryViaEmail = () => {
+    if (history.length === 0) return;
     const lastEntry = history[history.length - 1];
     const subject = encodeURIComponent(lang === 'es' ? "Mi Evolución Nutricional - NutriPlan AI" : "My Nutritional Progress - NutriPlan AI");
     const body = encodeURIComponent(lang === 'es' 
@@ -153,20 +157,19 @@ const App: React.FC = () => {
     window.location.href = `mailto:?subject=${subject}&body=${body}`;
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 p-6">
-        <div className="w-16 h-16 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mb-6"></div>
-        <div className="text-center space-y-2">
-          <p className="text-slate-900 font-bold text-lg">{t.working}</p>
-          <p className="text-slate-500 max-w-xs text-sm italic">{t.working_desc}</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-screen bg-slate-50 pb-24 lg:pb-8">
+    <div className="min-h-screen bg-slate-50 pb-24 lg:pb-8 relative">
+      {/* Loading Overlay - Previene desmontaje de componentes para no perder datos del formulario */}
+      {loading && (
+        <div className="fixed inset-0 z-[100] bg-slate-50/80 backdrop-blur-sm flex flex-col items-center justify-center animate-in fade-in duration-300">
+          <div className="w-16 h-16 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mb-6"></div>
+          <div className="text-center space-y-2">
+            <p className="text-slate-900 font-bold text-lg">{t.working}</p>
+            <p className="text-slate-500 max-w-xs text-sm italic">{t.working_desc}</p>
+          </div>
+        </div>
+      )}
+
       <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
         <div className="max-w-4xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -196,9 +199,12 @@ const App: React.FC = () => {
 
       <main className="max-w-4xl mx-auto px-4 py-8">
         {error && (
-          <div className="mb-6 p-4 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-sm font-medium flex justify-between items-center">
-            {error}
-            <button onClick={() => setError(null)} className="text-rose-900 font-bold">×</button>
+          <div className="mb-6 p-4 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-sm font-medium flex justify-between items-center shadow-sm">
+            <div className="flex items-center gap-2">
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
+              {error}
+            </div>
+            <button onClick={() => setError(null)} className="text-rose-900 font-bold px-2 hover:bg-rose-100 rounded">×</button>
           </div>
         )}
 
